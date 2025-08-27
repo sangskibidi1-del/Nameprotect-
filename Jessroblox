@@ -1,93 +1,94 @@
--- 🔥 Fly + Noclip Blox Fruits
+-- ✨ Fly + Noclip Universal Script ✨
 -- Made by JessMods
 
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-
 local LocalPlayer = Players.LocalPlayer
-local HRP = LocalPlayer.Character and LocalPlayer.Character:WaitForChild("HumanoidRootPart")
 
--- ⚡ Cấu hình
-local flySpeed = 80 -- tốc độ bay (giữ vừa phải tránh kick)
 local flying = false
 local noclip = false
+local speed = 50 -- tốc độ bay
 
--- BodyVelocity để bay
-local bv = Instance.new("BodyVelocity")
-bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-bv.Velocity = Vector3.new(0, 0, 0)
+-- Tạo watermark
+local gui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
+gui.IgnoreGuiInset = true
+local label = Instance.new("TextLabel", gui)
+label.Size = UDim2.new(1, 0, 0, 40)
+label.BackgroundTransparency = 1
+label.Text = "🚀 Fly + Noclip | Made by JessMods"
+label.TextColor3 = Color3.fromRGB(0, 255, 127)
+label.TextScaled = true
+task.delay(5, function() gui:Destroy() end)
 
--- Bật/tắt Fly
-local function toggleFly()
-    flying = not flying
+-- Hàm lấy HRP
+local function getHRP()
+    local char = LocalPlayer.Character
+    if char then
+        return char:FindFirstChild("HumanoidRootPart")
+    end
+end
+
+-- Fly loop
+RunService.RenderStepped:Connect(function(dt)
     if flying then
-        bv.Parent = HRP
-    else
-        bv.Parent = nil
-        HRP.Velocity = Vector3.new(0, 0, 0)
-    end
-end
+        local hrp = getHRP()
+        if hrp then
+            local camCF = workspace.CurrentCamera.CFrame
+            local moveDir = Vector3.zero
 
--- Bật/tắt Noclip
-local function toggleNoclip()
-    noclip = not noclip
-end
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDir += camCF.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDir -= camCF.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDir -= camCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDir += camCF.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveDir += Vector3.new(0,1,0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                moveDir -= Vector3.new(0,1,0)
+            end
 
--- Gán phím F = Fly, C = Noclip
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.F then
-        toggleFly()
-    elseif input.KeyCode == Enum.KeyCode.C then
-        toggleNoclip()
-    end
-end)
-
--- Điều khiển bay
-RunService.Heartbeat:Connect(function()
-    if flying and HRP and LocalPlayer.Character then
-        local camCF = workspace.CurrentCamera.CFrame
-        local moveDir = Vector3.new(0, 0, 0)
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveDir = moveDir + camCF.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveDir = moveDir - camCF.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveDir = moveDir - camCF.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveDir = moveDir + camCF.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            moveDir = moveDir + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-            moveDir = moveDir - Vector3.new(0, 1, 0)
-        end
-
-        bv.Velocity = moveDir.Unit * flySpeed
-    end
-
-    -- Noclip loop
-    if noclip and LocalPlayer.Character then
-        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") and part.CanCollide then
-                part.CanCollide = false
+            if moveDir.Magnitude > 0 then
+                hrp.Velocity = moveDir.Unit * speed
+            else
+                hrp.Velocity = Vector3.zero
             end
         end
     end
 end)
 
--- Watermark
-local gui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-gui.IgnoreGuiInset = true
-local label = Instance.new("TextLabel", gui)
-label.Size = UDim2.new(1, 0, 0, 30)
-label.BackgroundTransparency = 1
-label.Text = "🚀 JessMods | Fly (F) | Noclip (C)"
-label.TextColor3 = Color3.fromRGB(0, 255, 127)
-label.TextScaled = true
+-- Noclip loop
+RunService.Stepped:Connect(function()
+    if noclip and LocalPlayer.Character then
+        for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then
+                v.CanCollide = false
+            end
+        end
+    end
+end)
+
+-- Toggle bằng phím
+local UserInputService = game:GetService("UserInputService")
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        flying = not flying
+        print("Fly:", flying)
+    elseif input.KeyCode == Enum.KeyCode.C then
+        noclip = not noclip
+        print("Noclip:", noclip)
+    end
+end)
+
+-- Tự khởi động lại khi respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    repeat task.wait() until char:FindFirstChild("HumanoidRootPart")
+end)
