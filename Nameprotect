@@ -1,5 +1,5 @@
 --// Key system
-local CorrectKey = "1234" -- key cố định bạn muốn
+local CorrectKey = "quyendzvailon" -- key cố định bạn muốn
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
