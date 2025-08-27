@@ -78,7 +78,7 @@ gui.IgnoreGuiInset = true
 local label = Instance.new("TextLabel", gui)
 label.Size = UDim2.new(1, 0, 0, 50)
 label.BackgroundTransparency = 1
-label.Text = "✨ Made by ChatGPT ✨"
+label.Text = "Made by ChatGPT🥀"
 label.TextColor3 = Color3.fromRGB(0, 255, 127)
 label.TextScaled = true
 task.delay(5, function() gui:Destroy() end)
