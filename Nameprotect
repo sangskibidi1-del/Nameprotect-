@@ -1,11 +1,19 @@
---// Key system + NameProtect + Lưu Key
-local CorrectKey = "quyendzvailon"
+--// Key system with save to file
+local CorrectKey = "quyendzvailon" -- fixed key
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
 
--- Hàm NameProtect
-local function runNameProtect()
+-- Đọc key đã lưu trong file (nếu có)
+local SavedKey = nil
+pcall(function()
+    if isfile("SavedKey.txt") then
+        SavedKey = readfile("SavedKey.txt")
+    end
+end)
+
+-- Hàm chạy NameProtect
+local function StartNameProtect()
     local nameMap = {}
     local counter = 1
     local prefix = "Protect"
@@ -72,19 +80,19 @@ local function runNameProtect()
     local label = Instance.new("TextLabel", gui)
     label.Size = UDim2.new(1, 0, 0, 50)
     label.BackgroundTransparency = 1
-    label.Text = "✅ NameProtect Activated"
+    label.Text = "Made by Quyendz 🥀"
     label.TextColor3 = Color3.fromRGB(0, 255, 127)
     label.TextScaled = true
     task.delay(5, function() gui:Destroy() end)
 end
 
--- Nếu key đã lưu thì bỏ qua nhập
-if getgenv().SavedKey == CorrectKey then
-    runNameProtect()
+-- Nếu có key đã lưu và đúng thì vào luôn
+if SavedKey == CorrectKey then
+    StartNameProtect()
     return
 end
 
--- GUI nhập key
+-- UI nhập key
 local ScreenGui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
 local Frame = Instance.new("Frame", ScreenGui)
 Frame.Size = UDim2.new(0, 300, 0, 200)
@@ -96,42 +104,60 @@ Frame.Draggable = true
 local Box = Instance.new("TextBox", Frame)
 Box.Size = UDim2.new(1, -20, 0, 40)
 Box.Position = UDim2.new(0, 10, 0, 20)
-Box.PlaceholderText = "Nhập Key..."
+Box.PlaceholderText = "Enter Key..."
 Box.Text = ""
 Box.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 Box.TextColor3 = Color3.new(1,1,1)
 Box.TextScaled = true
 
-local SaveCheck = Instance.new("TextButton", Frame)
-SaveCheck.Size = UDim2.new(1, -20, 0, 30)
-SaveCheck.Position = UDim2.new(0, 10, 0, 70)
-SaveCheck.Text = "☐ Lưu key"
-SaveCheck.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-SaveCheck.TextColor3 = Color3.new(1,1,1)
-SaveCheck.TextScaled = true
-local SaveEnabled = false
-SaveCheck.MouseButton1Click:Connect(function()
-    SaveEnabled = not SaveEnabled
-    SaveCheck.Text = SaveEnabled and "☑ Lưu key" or "☐ Lưu key"
+-- CheckBox "Remember"
+local Remember = Instance.new("TextButton", Frame)
+Remember.Size = UDim2.new(0, 25, 0, 25)
+Remember.Position = UDim2.new(0, 10, 0, 70)
+Remember.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+Remember.Text = "✘"
+Remember.TextColor3 = Color3.new(1,0,0)
+Remember.TextScaled = true
+local rememberChecked = false
+
+Remember.MouseButton1Click:Connect(function()
+    rememberChecked = not rememberChecked
+    if rememberChecked then
+        Remember.Text = "✔"
+        Remember.TextColor3 = Color3.new(0,1,0)
+    else
+        Remember.Text = "✘"
+        Remember.TextColor3 = Color3.new(1,0,0)
+    end
 end)
 
+local RememberLabel = Instance.new("TextLabel", Frame)
+RememberLabel.Size = UDim2.new(1, -40, 0, 25)
+RememberLabel.Position = UDim2.new(0, 45, 0, 70)
+RememberLabel.Text = "Remember Key"
+RememberLabel.TextColor3 = Color3.new(1,1,1)
+RememberLabel.BackgroundTransparency = 1
+RememberLabel.TextScaled = true
+
+-- Button confirm
 local Button = Instance.new("TextButton", Frame)
 Button.Size = UDim2.new(1, -20, 0, 40)
 Button.Position = UDim2.new(0, 10, 0, 120)
-Button.Text = "Xác nhận"
+Button.Text = "Confirm"
 Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 Button.TextColor3 = Color3.new(1,1,1)
 Button.TextScaled = true
 
--- Khi ấn nút
 Button.MouseButton1Click:Connect(function()
     if Box.Text == CorrectKey then
-        if SaveEnabled then
-            getgenv().SavedKey = CorrectKey
+        if rememberChecked then
+            pcall(function()
+                writefile("SavedKey.txt", Box.Text)
+            end)
         end
         ScreenGui:Destroy()
-        runNameProtect()
+        StartNameProtect()
     else
-        Box.Text = "❌ Sai key!"
+        Box.Text = "❌ Wrong key!"
     end
 end)
