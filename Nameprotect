@@ -1,14 +1,94 @@
---// Key system
-local CorrectKey = "quyendzvailon" -- key cố định bạn muốn
+--// Key system + NameProtect + Lưu Key
+local CorrectKey = "quyendzvailon"
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
 
+-- Hàm NameProtect
+local function runNameProtect()
+    local nameMap = {}
+    local counter = 1
+    local prefix = "Protect"
+
+    nameMap[LocalPlayer] = "NameProtect"
+
+    local function getFakeName(plr)
+        if not nameMap[plr] then
+            nameMap[plr] = prefix .. tostring(counter)
+            counter += 1
+        end
+        return nameMap[plr]
+    end
+
+    local function replaceText(obj)
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+            for plr, fake in pairs(nameMap) do
+                if obj.Text and (obj.Text:find(plr.Name) or obj.Text:find(plr.DisplayName)) then
+                    obj.Text = obj.Text:gsub(plr.Name, fake)
+                    obj.Text = obj.Text:gsub(plr.DisplayName, fake)
+                end
+            end
+        end
+    end
+
+    local function scanUI()
+        for _, gui in ipairs({LocalPlayer.PlayerGui, CoreGui}) do
+            for _, obj in ipairs(gui:GetDescendants()) do
+                replaceText(obj)
+            end
+        end
+    end
+
+    local function updateChar(plr)
+        local fake = getFakeName(plr)
+        if plr.Character and plr.Character:FindFirstChild("Humanoid") then
+            plr.Character.Humanoid.DisplayName = fake
+        end
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        getFakeName(plr)
+        updateChar(plr)
+    end
+
+    Players.PlayerAdded:Connect(function(plr)
+        getFakeName(plr)
+        plr.CharacterAdded:Connect(function()
+            updateChar(plr)
+        end)
+    end)
+
+    task.spawn(function()
+        while task.wait(0.05) do
+            scanUI()
+            for _, plr in ipairs(Players:GetPlayers()) do
+                updateChar(plr)
+            end
+        end
+    end)
+
+    local gui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
+    gui.IgnoreGuiInset = true
+    local label = Instance.new("TextLabel", gui)
+    label.Size = UDim2.new(1, 0, 0, 50)
+    label.BackgroundTransparency = 1
+    label.Text = "✅ NameProtect Activated"
+    label.TextColor3 = Color3.fromRGB(0, 255, 127)
+    label.TextScaled = true
+    task.delay(5, function() gui:Destroy() end)
+end
+
+-- Nếu key đã lưu thì bỏ qua nhập
+if getgenv().SavedKey == CorrectKey then
+    runNameProtect()
+    return
+end
+
 -- GUI nhập key
 local ScreenGui = Instance.new("ScreenGui", LocalPlayer:WaitForChild("PlayerGui"))
 local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 300, 0, 150)
-Frame.Position = UDim2.new(0.5, -150, 0.5, -75)
+Frame.Size = UDim2.new(0, 300, 0, 200)
+Frame.Position = UDim2.new(0.5, -150, 0.5, -100)
 Frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Frame.Active = true
 Frame.Draggable = true
@@ -22,9 +102,22 @@ Box.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 Box.TextColor3 = Color3.new(1,1,1)
 Box.TextScaled = true
 
+local SaveCheck = Instance.new("TextButton", Frame)
+SaveCheck.Size = UDim2.new(1, -20, 0, 30)
+SaveCheck.Position = UDim2.new(0, 10, 0, 70)
+SaveCheck.Text = "☐ Lưu key"
+SaveCheck.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+SaveCheck.TextColor3 = Color3.new(1,1,1)
+SaveCheck.TextScaled = true
+local SaveEnabled = false
+SaveCheck.MouseButton1Click:Connect(function()
+    SaveEnabled = not SaveEnabled
+    SaveCheck.Text = SaveEnabled and "☑ Lưu key" or "☐ Lưu key"
+end)
+
 local Button = Instance.new("TextButton", Frame)
 Button.Size = UDim2.new(1, -20, 0, 40)
-Button.Position = UDim2.new(0, 10, 0, 80)
+Button.Position = UDim2.new(0, 10, 0, 120)
 Button.Text = "Xác nhận"
 Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 Button.TextColor3 = Color3.new(1,1,1)
@@ -33,79 +126,11 @@ Button.TextScaled = true
 -- Khi ấn nút
 Button.MouseButton1Click:Connect(function()
     if Box.Text == CorrectKey then
+        if SaveEnabled then
+            getgenv().SavedKey = CorrectKey
+        end
         ScreenGui:Destroy()
-        --// Bắt đầu chạy script chính NameProtect
-        local nameMap = {}
-        local counter = 1
-        local prefix = "Protect"
-
-        nameMap[LocalPlayer] = "NameProtect"
-
-        local function getFakeName(plr)
-            if not nameMap[plr] then
-                nameMap[plr] = prefix .. tostring(counter)
-                counter += 1
-            end
-            return nameMap[plr]
-        end
-
-        local function replaceText(obj)
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
-                for plr, fake in pairs(nameMap) do
-                    if obj.Text and (obj.Text:find(plr.Name) or obj.Text:find(plr.DisplayName)) then
-                        obj.Text = obj.Text:gsub(plr.Name, fake)
-                        obj.Text = obj.Text:gsub(plr.DisplayName, fake)
-                    end
-                end
-            end
-        end
-
-        local function scanUI()
-            for _, gui in ipairs({LocalPlayer.PlayerGui, CoreGui}) do
-                for _, obj in ipairs(gui:GetDescendants()) do
-                    replaceText(obj)
-                end
-            end
-        end
-
-        local function updateChar(plr)
-            local fake = getFakeName(plr)
-            if plr.Character and plr.Character:FindFirstChild("Humanoid") then
-                plr.Character.Humanoid.DisplayName = fake
-            end
-        end
-
-        for _, plr in ipairs(Players:GetPlayers()) do
-            getFakeName(plr)
-            updateChar(plr)
-        end
-
-        Players.PlayerAdded:Connect(function(plr)
-            getFakeName(plr)
-            plr.CharacterAdded:Connect(function()
-                updateChar(plr)
-            end)
-        end)
-
-        task.spawn(function()
-            while task.wait(0.05) do
-                scanUI()
-                for _, plr in ipairs(Players:GetPlayers()) do
-                    updateChar(plr)
-                end
-            end
-        end)
-
-        local gui = Instance.new("ScreenGui", LocalPlayer.PlayerGui)
-        gui.IgnoreGuiInset = true
-        local label = Instance.new("TextLabel", gui)
-        label.Size = UDim2.new(1, 0, 0, 50)
-        label.BackgroundTransparency = 1
-        label.Text = "Made by ChatGPT🥀"
-        label.TextColor3 = Color3.fromRGB(0, 255, 127)
-        label.TextScaled = true
-        task.delay(5, function() gui:Destroy() end)
-
+        runNameProtect()
     else
         Box.Text = "❌ Sai key!"
     end
