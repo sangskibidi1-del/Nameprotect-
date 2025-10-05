@@ -1,0 +1,282 @@
+-- MM2 Advanced Script by Quyendz (R15 Compatible, Optimized for Mobile, RayField UI)
+-- Version 1.0 | Date: October 05, 2025
+-- Features: ESP (role-based highlights), Aimbot for Murderer, Auto Shoot Murderer, Auto Pick Sheriff Gun, Custom Jump Power & Walk Speed
+-- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu if needed.
+-- Credits: By Quyendz - Professional Roblox Scripter with 5+ years experience
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Humanoid = LocalPlayer.Character:WaitForChild("Humanoid")
+
+-- Load RayField UI (mobile-friendly, modern design)
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- Global configurations
+local Config = {
+    ESPEnabled = false,
+    AimbotEnabled = false,
+    AutoShootEnabled = false,
+    AutoPickGunEnabled = false,
+    JumpPower = 50,
+    WalkSpeed = 16,
+    RoleColors = {
+        Innocent = Color3.fromRGB(0, 255, 0),  -- Green for Innocent
+        Sheriff = Color3.fromRGB(0, 0, 255),   -- Blue for Sheriff
+        Murderer = Color3.fromRGB(255, 0, 0)   -- Red for Murderer
+    }
+}
+
+-- Internal state
+local highlights = {}
+local roleCache = {}
+local aimConnection = nil
+local shootConnection = nil
+local pickConnection = nil
+
+-- Utility: Infer player role based on equipped tools
+local function inferRole(plr)
+    local backpack = plr:FindFirstChild("Backpack")
+    local character = plr.Character
+    if backpack and character then
+        if backpack:FindFirstChild("Knife") or character:FindFirstChild("Knife") then
+            return "Murderer"
+        end
+        if backpack:FindFirstChild("Gun") or character:FindFirstChild("Gun") then
+            return "Sheriff"
+        end
+    end
+    return "Innocent"
+end
+
+-- Clear existing highlights
+local function clearHighlights()
+    for _, hl in pairs(highlights) do
+        if hl and hl.Parent then
+            hl:Destroy()
+        end
+    end
+    highlights = {}
+end
+
+-- Add ESP highlight to player
+local function addHighlight(plr, role)
+    if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+        local hl = Instance.new("Highlight")
+        hl.Adornee = plr.Character
+        hl.FillTransparency = 1 -- Outline only
+        hl.OutlineColor = Config.RoleColors[role] or Color3.fromRGB(255, 255, 255)
+        hl.OutlineTransparency = 0
+        hl.Parent = plr.Character
+        highlights[plr] = hl
+    end
+end
+
+-- Apply ESP to all players
+local function applyESP()
+    clearHighlights()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local role = inferRole(plr)
+            roleCache[plr] = role
+            addHighlight(plr, role)
+        end
+    end
+end
+
+-- Update ESP on events
+Players.PlayerAdded:Connect(function(plr)
+    if plr ~= LocalPlayer then
+        plr.CharacterAdded:Connect(function(char)
+            task.wait(1) -- Wait for tools to load
+            applyESP()
+        end)
+        plr.Backpack.ChildAdded:Connect(function()
+            applyESP()
+        end)
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Humanoid = char:WaitForChild("Humanoid")
+    task.wait(1) -- Wait for tools to load
+    applyESP()
+end)
+
+-- Initial ESP application
+applyESP()
+
+-- Aimbot for Murderer
+local function startAimbot()
+    if aimConnection then return end
+    aimConnection = RunService.RenderStepped:Connect(function()
+        for plr, role in pairs(roleCache) do
+            if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, plr.Character.HumanoidRootPart.Position)
+                break
+            end
+        end
+    end)
+end
+
+local function stopAimbot()
+    if aimConnection then
+        aimConnection:Disconnect()
+        aimConnection = nil
+    end
+end
+
+-- Auto Shoot Murderer
+local function startAutoShoot()
+    if shootConnection then return end
+    shootConnection = RunService.RenderStepped:Connect(function()
+        if LocalPlayer.Character:FindFirstChild("Gun") then
+            for plr, role in pairs(roleCache) do
+                if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                    task.wait(0.1) -- Delay for next shot
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                    break
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoShoot()
+    if shootConnection then
+        shootConnection:Disconnect()
+        shootConnection = nil
+    end
+end
+
+-- Auto Pick Gun from Sheriff
+local function startAutoPickGun()
+    if pickConnection then return end
+    pickConnection = RunService.Heartbeat:Connect(function()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if roleCache[plr] == "Sheriff" and plr.Character and plr.Character.Humanoid.Health <= 0 then
+                for _, obj in ipairs(workspace:GetChildren()) do
+                    if obj.Name == "Gun" and obj:IsA("Tool") then
+                        obj.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+                        break
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoPickGun()
+    if pickConnection then
+        pickConnection:Disconnect()
+        pickConnection = nil
+    end
+end
+
+-- Apply speed and jump changes
+local function updateMovement()
+    Humanoid.JumpPower = Config.JumpPower
+    Humanoid.WalkSpeed = Config.WalkSpeed
+end
+
+-- RayField Window
+local Window = Rayfield:CreateWindow({
+    Name = "MM2 Script by Quyendz",
+    LoadingTitle = "Loading MM2 Script",
+    LoadingSubtitle = "by Quyendz",
+    ConfigurationSaving = {
+        Enabled = false
+    }
+})
+
+local MainTab = Window:CreateTab("Main", 4483362458)
+
+-- Toggle ESP
+MainTab:CreateToggle({
+    Name = "ESP",
+    CurrentValue = Config.ESPEnabled,
+    Callback = function(Value)
+        Config.ESPEnabled = Value
+        applyESP()
+    end
+})
+
+-- Toggle Aimbot
+MainTab:CreateToggle({
+    Name = "Aimbot Murderer",
+    CurrentValue = Config.AimbotEnabled,
+    Callback = function(Value)
+        Config.AimbotEnabled = Value
+        if Value then
+            startAimbot()
+        else
+            stopAimbot()
+        end
+    end
+})
+
+-- Toggle Auto Shoot
+MainTab:CreateToggle({
+    Name = "Auto Shoot Murderer",
+    CurrentValue = Config.AutoShootEnabled,
+    Callback = function(Value)
+        Config.AutoShootEnabled = Value
+        if Value then
+            startAutoShoot()
+        else
+            stopAutoShoot()
+        end
+    end
+})
+
+-- Toggle Auto Pick Gun
+MainTab:CreateToggle({
+    Name = "Auto Pick Gun",
+    CurrentValue = Config.AutoPickGunEnabled,
+    Callback = function(Value)
+        Config.AutoPickGunEnabled = Value
+        if Value then
+            startAutoPickGun()
+        else
+            stopAutoPickGun()
+        end
+    end
+})
+
+-- Slider Jump Power
+MainTab:CreateSlider({
+    Name = "Jump Power",
+    Range = {50, 200},
+    Increment = 1,
+    CurrentValue = Config.JumpPower,
+    Callback = function(Value)
+        Config.JumpPower = Value
+        updateMovement()
+    end
+})
+
+-- Slider Walk Speed
+MainTab:CreateSlider({
+    Name = "Walk Speed",
+    Range = {16, 100},
+    Increment = 1,
+    CurrentValue = Config.WalkSpeed,
+    Callback = function(Value)
+        Config.WalkSpeed = Value
+        updateMovement()
+    end
+})
+
+-- Initial setup
+updateMovement()
+
+-- Update on respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Humanoid = char:WaitForChild("Humanoid")
+    updateMovement()
+    task.wait(1) -- Wait for tools to load
+    applyESP()
+end)
