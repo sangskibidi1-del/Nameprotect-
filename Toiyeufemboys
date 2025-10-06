@@ -1,8 +1,8 @@
 -- MM2 Advanced Script by Quyendz (R15 Compatible, Optimized for Mobile, RayField UI)
--- Version 2.0 | Date: October 06, 2025 | Time: 12:29 PM +07
--- Features: Separate ESP for Innocent, Sheriff, Murderer; Auto Aim & Shoot Killer without locking camera; Auto Pick Sheriff Gun; Custom Jump Power & Walk Speed; NoClip
--- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu if needed. All features off by default.
--- Credits: By Quyendz - Professional Roblox Scripter with 5+ years experience
+-- Version 2.0 | Fix: ESP now updates roles automatically when game starts
+-- Features: Separate ESP for Innocent, Sheriff, Murderer; Auto Aim & Shoot Killer; Auto Pick Sheriff Gun; Auto Kill; Custom Jump Power & Walk Speed; NoClip
+-- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu. All features off by default.
+-- Credits: By Quyendz - Professional Roblox Scripter
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -104,15 +104,35 @@ local function applyESP()
     end
 end
 
--- Update ESP on events
+-- Update ESP when roles change
+local function updateRoles()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            local newRole = inferRole(plr)
+            if roleCache[plr] ~= newRole then
+                roleCache[plr] = newRole
+                applyESP() -- Cập nhật ESP ngay khi vai trò thay đổi
+            end
+        end
+    end
+end
+
+-- Monitor role changes
 Players.PlayerAdded:Connect(function(plr)
     if plr ~= LocalPlayer then
         plr.CharacterAdded:Connect(function(char)
             task.wait(1) -- Đợi công cụ tải
             applyESP()
         end)
-        plr.Backpack.ChildAdded:Connect(function()
-            applyESP()
+        plr.Backpack.ChildAdded:Connect(function(item)
+            if item.Name == "Knife" or item.Name == "Gun" then
+                updateRoles()
+            end
+        end)
+        plr.Character.ChildAdded:Connect(function(item)
+            if item.Name == "Knife" or item.Name == "Gun" then
+                updateRoles()
+            end
         end)
     end
 end)
@@ -133,7 +153,7 @@ local function startAutoAimShoot()
                 if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
                     local direction = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Unit
                     local lookVector = Camera.CFrame.LookVector
-                    if direction:Dot(lookVector) > 0.9 then -- Check if facing Killer roughly
+                    if direction:Dot(lookVector) > 0.9 then
                         pcall(function()
                             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
                             task.wait(Config.ShootDelay)
