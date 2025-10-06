@@ -482,4 +482,71 @@ do
         local hour = os.date("*t").hour
         Config.Theme = hour >= 18 or hour < 6 and "Dark" or "Light"
         Window:ApplyTheme(Config.Theme)
-        UserInputService.InputBegan:Connect(function(input, gamePr
+        UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+                if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.P then
+                    Window:Toggle()
+                elseif not gameProcessedEvent and input.KeyCode == Enum.KeyCode.O then
+                    if debugOverlay then debugOverlay.Enabled = not debugOverlay.Enabled end
+                end
+            end)
+            createDebugOverlay(Config)
+        end
+        Modules.UI = UI
+    end
+
+    -- init.lua Logic (Inline)
+    do
+        local success, err
+        local Config = Modules.Config
+        local Utils = Utils
+        local modules = {}
+        local function safeRequire(path)
+            local ok, mod = pcall(function() return path end)
+            if not ok then
+                Utils.System.log("[init] Failed to require: " .. tostring(path) .. " -> " .. tostring(mod))
+                return nil
+            end
+            return mod
+        end
+        modules.ESP = safeRequire(Modules.ESP)
+        modules.Combat = safeRequire(Modules.Combat)
+        modules.UI = safeRequire(Modules.UI)
+        modules.Watchdog = safeRequire(Modules.Watchdog)
+        success, err = pcall(function()
+            if modules.ESP and modules.ESP.init then modules.ESP.init(Config, Utils) end
+            if modules.Combat and modules.Combat.init then modules.Combat.init(Config, Utils) end
+            if modules.UI and modules.UI.init then modules.UI.init(Config, Utils) end
+            if modules.Watchdog and modules.Watchdog.init then modules.Watchdog.init(Config, Utils) end
+        end)
+        if not success then
+            Utils.System.log("[MM2 Advanced] ❌ Module error during init: " .. tostring(err))
+        else
+            Utils.System.log("[MM2 Advanced] ✅ All available modules initialized.")
+        end
+        if Config.AutoSave then
+            Utils.System.saveConfig(Config)
+        end
+    end
+
+    -- changelog.md (Inline as Comment)
+    --[[
+    # MM2 Advanced — Changelog
+
+    ## v2.2 — October 2025
+    ### New
+    - ESP: Debounce, Color cache, Async refresh
+    - Auto Aim: FOV detection (±30°), head-targeting, dynamic FPS-based limiter
+    - Auto Pick: firetouchinterest attempt with fallback
+    - Auto Kill: Handle checks, kill priority (Sheriff > Innocent)
+    - Watchdog: FPS drop detection and pause
+    - UI: Settings tab, Update Delay slider, Debug toggle, Theme auto-switch
+    - Persistent Config support (writefile fallback to getgenv)
+
+    ### Fixes
+    - Prevent frequent applyESP spam via debounce
+    - VirtualInputManager checks and graceful disable
+
+    ### Notes
+    - Place project under a LocalScript with module children or adapt require paths for your setup.
+    - writefile depends on executor; ensure your environment supports file I/O if you want persistence.
+    ]]
