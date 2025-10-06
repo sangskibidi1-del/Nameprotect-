@@ -1,8 +1,8 @@
 -- MM2 Advanced Script by Quyendz (R15 Compatible, Optimized for Mobile, RayField UI)
--- Version 2.0 | Fix: ESP now updates roles automatically when game starts
+-- Version 2.0 | Fix: Auto Aim & Shoot now targets only Murderer
 -- Features: Separate ESP for Innocent, Sheriff, Murderer; Auto Aim & Shoot Killer; Auto Pick Sheriff Gun; Auto Kill; Custom Jump Power & Walk Speed; NoClip
 -- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu. All features off by default.
--- Credits: By Quyendz - Professional Roblox Scripter
+-- Credits: By Quyendz - Professional Roblox Skidder
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -144,7 +144,7 @@ LocalPlayer.CharacterAdded:Connect(function(char)
     applyESP()
 end)
 
--- Auto Aim and Shoot Killer (no camera lock)
+-- Auto Aim and Shoot Killer (only targets Murderer)
 local function startAutoAimShoot()
     if aimShootConnection then return end
     aimShootConnection = RunService.RenderStepped:Connect(function()
@@ -153,14 +153,14 @@ local function startAutoAimShoot()
                 if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
                     local direction = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Unit
                     local lookVector = Camera.CFrame.LookVector
-                    if direction:Dot(lookVector) > 0.9 then
+                    if direction:Dot(lookVector) > 0.9 then -- Check if facing Murderer
                         pcall(function()
                             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
                             task.wait(Config.ShootDelay)
                             VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
                         end)
                     end
-                    break
+                    break -- Chỉ bắn Murderer, dừng khi tìm thấy
                 end
             end
         end
