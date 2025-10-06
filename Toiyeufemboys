@@ -1,416 +1,485 @@
--- MM2 Advanced Script by Quyendz (R15 Compatible, Optimized for Mobile, RayField UI)
--- Version 2.0 | Fix: Auto Aim & Shoot now targets only Murderer
--- Features: Separate ESP for Innocent, Sheriff, Murderer; Auto Aim & Shoot Killer; Auto Pick Sheriff Gun; Auto Kill; Custom Jump Power & Walk Speed; NoClip
--- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu. All features off by default.
--- Credits: By Quyendz - Professional Roblox Skidder
+-- MM2 Advanced Script v2.2 LocalScript
+-- Combined by Quyendz & [YourName] | Date: October 06, 2025 | Time: 09:50 PM +07
+-- Features: ESP with debounce & color cache, Auto Aim with FOV & head detect, Auto Kill with priority,
+--           Auto Pick with firetouchinterest, Watchdog with FPS drop detection, Debug Overlay, Persistent Config
+-- Usage: Copy-paste into executor (e.g., Codex) and run on a private MM2 server. Press P to toggle UI.
+-- Note: Test on private server to avoid bans. Requires VirtualInputManager support.
+-- Credits: Developed by Quyendz | Reviewed and enhanced by [YourName]
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local Humanoid = LocalPlayer.Character and LocalPlayer.Character:WaitForChild("Humanoid", 5) or nil
-local RootPart = LocalPlayer.Character and LocalPlayer.Character:WaitForChild("HumanoidRootPart", 5) or nil
+-- Inline Modules
+local Modules = {}
+local Utils = {}
 
--- Load RayField UI with error handling
-local Rayfield
-local success, err = pcall(function()
-    Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
-end)
-if not success then
-    warn("Failed to load RayField UI: " .. err .. ". Script will proceed without UI.")
-    return
-end
-
--- Global configurations (all off by default)
-local Config = {
-    ESPInnocentEnabled = false,
-    ESPSheriffEnabled = false,
-    ESPMurdererEnabled = false,
-    AutoAimShootEnabled = false,
-    AutoPickGunEnabled = false,
-    AutoKillEnabled = false,
-    NoclipEnabled = false,
-    JumpPower = 50,
-    WalkSpeed = 16,
-    ShootDelay = 0.2,
-    RoleColors = {
-        Innocent = Color3.fromRGB(0, 255, 0),  -- Xanh lá cho Innocent
-        Sheriff = Color3.fromRGB(0, 0, 255),   -- Xanh dương cho Sheriff
-        Murderer = Color3.fromRGB(255, 0, 0)   -- Đỏ cho Murderer
+-- config.lua (Inline)
+do
+    local Config = {
+        -- ESP
+        ESPInnocentEnabled = false,
+        ESPSheriffEnabled = false,
+        ESPMurdererEnabled = false,
+        -- Combat
+        AutoAimEnabled = false,
+        AutoPickGunEnabled = false,
+        AutoKillEnabled = false,
+        -- Movement
+        NoclipEnabled = false,
+        JumpPower = 50,
+        WalkSpeed = 16,
+        FlySpeed = 50,
+        -- Timing / tuning
+        ShootDelay = 0.5,
+        KillDistance = 30,
+        UpdateDelay = 0.1, -- default update delay
+        -- UI
+        DebugMode = false,
+        Theme = "Dark",
+        AutoSave = true,
+        -- Colors
+        RoleColors = {
+            Innocent = Color3.fromRGB(0, 255, 0),
+            Sheriff = Color3.fromRGB(0, 0, 255),
+            Murderer = Color3.fromRGB(255, 0, 0)
+        }
     }
-}
-
--- Internal state
-local highlights = {}
-local roleCache = {}
-local aimShootConnection = nil
-local pickConnection = nil
-local autoKillConnection = nil
-local noclipConnection = nil
-
--- Utility: Infer player role based on equipped tools
-local function inferRole(plr)
-    local backpack = plr:FindFirstChild("Backpack")
-    local character = plr.Character
-    if backpack and character then
-        if backpack:FindFirstChild("Knife") or character:FindFirstChild("Knife") then
-            return "Murderer"
-        end
-        if backpack:FindFirstChild("Gun") or character:FindFirstChild("Gun") then
-            return "Sheriff"
-        end
-    end
-    return "Innocent"
+    Modules.Config = Config
 end
 
--- Clear existing highlights
-local function clearHighlights()
-    for _, hl in pairs(highlights) do
-        if hl and hl.Parent then
-            hl:Destroy()
-        end
+-- utils/system.lua (Inline)
+do
+    local System = {}
+    function System.log(msg)
+        pcall(function() print("[MM2 System] " .. tostring(msg)) end)
     end
-    highlights = {}
-end
-
--- Add ESP highlight to player
-local function addHighlight(plr, role)
-    if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-        local hl = Instance.new("Highlight")
-        hl.Adornee = plr.Character
-        hl.FillTransparency = 1 -- Chỉ viền
-        hl.OutlineColor = Config.RoleColors[role] or Color3.fromRGB(255, 255, 255)
-        hl.OutlineTransparency = 0
-        hl.Parent = plr.Character
-        highlights[plr] = hl
+    function System.dynamicWait()
+        local ok, fpsStat = pcall(function() return game:GetService("Stats").Workspace.FPS end)
+        local fps = (ok and fpsStat and fpsStat:GetValue()) or 60
+        return fps < 30 and 0.25 or 0.1
     end
-end
-
--- Apply ESP to all players (separate by role)
-local function applyESP()
-    clearHighlights()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            local role = inferRole(plr)
-            roleCache[plr] = role
-            if (role == "Innocent" and Config.ESPInnocentEnabled) or
-               (role == "Sheriff" and Config.ESPSheriffEnabled) or
-               (role == "Murderer" and Config.ESPMurdererEnabled) then
-                addHighlight(plr, role)
-            end
-        end
-    end
-end
-
--- Update ESP when roles change
-local function updateRoles()
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer then
-            local newRole = inferRole(plr)
-            if roleCache[plr] ~= newRole then
-                roleCache[plr] = newRole
-                applyESP() -- Cập nhật ESP ngay khi vai trò thay đổi
-            end
-        end
-    end
-end
-
--- Monitor role changes
-Players.PlayerAdded:Connect(function(plr)
-    if plr ~= LocalPlayer then
-        plr.CharacterAdded:Connect(function(char)
-            task.wait(1) -- Đợi công cụ tải
-            applyESP()
-        end)
-        plr.Backpack.ChildAdded:Connect(function(item)
-            if item.Name == "Knife" or item.Name == "Gun" then
-                updateRoles()
+    function System.saveConfig(config)
+        local ok, writeok = pcall(function()
+            if writefile then
+                writefile("MM2_Advanced_config.json", game:GetService("HttpService"):JSONEncode(config))
+                return true
+            else
+                getgenv().MM2_Config = config
+                return false
             end
         end)
-        plr.Character.ChildAdded:Connect(function(item)
-            if item.Name == "Knife" or item.Name == "Gun" then
-                updateRoles()
-            end
-        end)
+        return ok and writeok
     end
-end)
+    Utils.System = System
+end
 
-LocalPlayer.CharacterAdded:Connect(function(char)
-    Humanoid = char:WaitForChild("Humanoid", 5)
-    RootPart = char:WaitForChild("HumanoidRootPart", 5)
-    task.wait(1) -- Đợi công cụ tải
-    applyESP()
-end)
-
--- Auto Aim and Shoot Killer (only targets Murderer)
-local function startAutoAimShoot()
-    if aimShootConnection then return end
-    aimShootConnection = RunService.RenderStepped:Connect(function()
-        if Config.AutoAimShootEnabled and Humanoid and LocalPlayer.Character:FindFirstChild("Gun") then
-            for plr, role in pairs(roleCache) do
-                if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    local direction = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Unit
-                    local lookVector = Camera.CFrame.LookVector
-                    if direction:Dot(lookVector) > 0.9 then -- Check if facing Murderer
-                        pcall(function()
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-                            task.wait(Config.ShootDelay)
-                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-                        end)
-                    end
-                    break -- Chỉ bắn Murderer, dừng khi tìm thấy
+-- modules/esp.lua (Inline)
+do
+    local ESP = {}
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local LocalPlayer = Players.LocalPlayer
+    local highlights = {}
+    local roleCache = {}
+    local colorCache = {}
+    local lastApply = 0
+    local function inferRole(plr)
+        if not plr then return "Innocent" end
+        local backpack = plr:FindFirstChild("Backpack")
+        local character = plr.Character
+        if backpack and (backpack:FindFirstChild("Knife") or backpack:FindFirstChild("Gun")) then
+            if backpack:FindFirstChild("Knife") then return "Murderer" end
+            if backpack:FindFirstChild("Gun") then return "Sheriff" end
+        end
+        if character then
+            if character:FindFirstChild("Knife") then return "Murderer" end
+            if character:FindFirstChild("Gun") then return "Sheriff" end
+        end
+        return "Innocent"
+    end
+    local function clearHighlights()
+        for plr, hl in pairs(highlights) do
+            if hl and hl.Parent then pcall(function() hl:Destroy() end) end
+        end
+        highlights = {}
+    end
+    local function addHighlight(plr, color)
+        if not plr or not plr.Character then return end
+        if highlights[plr] and highlights[plr].Parent then
+            highlights[plr].OutlineColor = color
+            return
+        end
+        local ok, hl = pcall(function()
+            local h = Instance.new("Highlight")
+            h.Adornee = plr.Character
+            h.FillTransparency = 1
+            h.OutlineColor = color
+            h.OutlineTransparency = 0
+            h.Parent = plr.Character
+            return h
+        end)
+        if ok and hl then highlights[plr] = hl end
+    end
+    function ESP.applyESP(Config)
+        if not (Config.ESPInnocentEnabled or Config.ESPSheriffEnabled or Config.ESPMurdererEnabled) then
+            clearHighlights()
+            return
+        end
+        if os.clock() - lastApply < (Config.UpdateDelay or 0.1) then return end
+        lastApply = os.clock()
+        clearHighlights()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local role = inferRole(plr)
+                roleCache[plr] = role
+                local enabled = (role == "Innocent" and Config.ESPInnocentEnabled) or
+                                (role == "Sheriff" and Config.ESPSheriffEnabled) or
+                                (role == "Murderer" and Config.ESPMurdererEnabled)
+                if enabled then
+                    local color = colorCache[role] or Config.RoleColors[role] or Color3.fromRGB(255,255,255)
+                    colorCache[role] = color
+                    addHighlight(plr, color)
                 end
             end
         end
-    end)
-end
-
-local function stopAutoAimShoot()
-    if aimShootConnection then
-        aimShootConnection:Disconnect()
-        aimShootConnection = nil
     end
+    function ESP.init(Config, Utils)
+        task.spawn(function()
+            while task.wait(Config.UpdateDelay or 0.1) do
+                pcall(function()
+                    ESP.applyESP(Config)
+                end)
+            end
+        end)
+        Players.PlayerAdded:Connect(function(plr)
+            plr.CharacterAdded:Connect(function()
+                task.wait(1)
+                ESP.applyESP(Config)
+            end)
+        end)
+        if LocalPlayer.Character then
+            LocalPlayer.CharacterAdded:Connect(function()
+                task.wait(1)
+                ESP.applyESP(Config)
+            end)
+        end
+    end
+    Modules.ESP = ESP
 end
 
--- Auto Pick Gun from Sheriff
-local function startAutoPickGun()
-    if pickConnection then return end
-    pickConnection = RunService.Heartbeat:Connect(function()
-        if Config.AutoPickGunEnabled and Humanoid then
+-- modules/combat.lua (Inline)
+do
+    local Combat = {}
+    local Players = game:GetService("Players")
+    local RunService = game:GetService("RunService")
+    local VirtualInputManager
+    pcall(function() VirtualInputManager = game:GetService("VirtualInputManager") end)
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = workspace.CurrentCamera
+    local lastShot = 0
+    local function unitSafe(v)
+        local ok, u = pcall(function() return v.Unit end)
+        return ok and u or (v.magnitude > 0 and v / v.magnitude or Vector3.new(0,0,0))
+    end
+    local function inFOV(targetPos, maxAngle)
+        local dir = unitSafe(targetPos - Camera.CFrame.Position)
+        local look = Camera.CFrame.LookVector
+        local dot = math.clamp(dir:Dot(look), -1, 1)
+        local angle = math.deg(math.acos(dot))
+        return angle <= maxAngle
+    end
+    local function tryFire()
+        if not VirtualInputManager then return false end
+        local ok = pcall(function()
+            VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+            task.wait(0.06)
+            VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+        end)
+        return ok
+    end
+    local function attemptPickup(tool)
+        local success = false
+        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root and tool and tool:IsA("Tool") and tool:FindFirstChild("Handle") then
+            local ok, _ = pcall(function()
+                if firetouchinterest then
+                    firetouchinterest(tool.Handle, root, 0)
+                    firetouchinterest(tool.Handle, root, 1)
+                    success = true
+                else
+                    tool.Handle.CFrame = root.CFrame
+                    success = true
+                end
+            end)
+        end
+        return success
+    end
+    function Combat.autoAimLoop(Config, Utils)
+        while task.wait(Utils.System.dynamicWait()) do
+            if not Config.AutoAimEnabled then continue end
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then continue end
+            if tick() - lastShot < (Config.ShootDelay or 0.5) then continue end
+            local targetHead, bestDist
             for _, plr in ipairs(Players:GetPlayers()) do
-                if roleCache[plr] == "Sheriff" and plr.Character and plr.Character.Humanoid.Health <= 0 then
-                    for _, obj in ipairs(workspace:GetChildren()) do
-                        if obj.Name == "Gun" and obj:IsA("Tool") then
-                            obj.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
-                            break
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                    local head = plr.Character:FindFirstChild("Head") or plr.Character:FindFirstChild("HumanoidRootPart")
+                    if head and inFOV(head.Position, 30) then
+                        local dist = (head.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                        if not bestDist or dist < bestDist then
+                            targetHead = head
+                            bestDist = dist
                         end
                     end
                 end
             end
+            if targetHead then
+                local newCFrame = CFrame.new(Camera.CFrame.Position, targetHead.Position)
+                Camera.CFrame = Camera.CFrame:Lerp(newCFrame, 0.25)
+                if inFOV(targetHead.Position, 20) and tick() - lastShot >= (Config.ShootDelay or 0.5) then
+                    local fired = tryFire()
+                    if fired then lastShot = tick() end
+                end
+            end
         end
-    end)
-end
-
-local function stopAutoPickGun()
-    if pickConnection then
-        pickConnection:Disconnect()
-        pickConnection = nil
     end
-end
-
--- Auto Kill when Murderer
-local function startAutoKill()
-    if autoKillConnection then return end
-    autoKillConnection = RunService.RenderStepped:Connect(function()
-        if Config.AutoKillEnabled and Humanoid and LocalPlayer.Character:FindFirstChild("Knife") then
-            for _, plr in ipairs(Players:GetPlayers()) do
-                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
-                    pcall(function()
-                        LocalPlayer.Character.Knife.CFrame = plr.Character.HumanoidRootPart.CFrame
-                    end)
+    function Combat.autoPickLoop(Config, Utils)
+        while task.wait(Config.UpdateDelay or 0.1) do
+            if not Config.AutoPickGunEnabled then continue end
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then continue end
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj.Name == "Gun" and obj:IsA("Tool") then
+                    attemptPickup(obj)
                     break
                 end
             end
         end
-    end)
-end
-
-local function stopAutoKill()
-    if autoKillConnection then
-        autoKillConnection:Disconnect()
-        autoKillConnection = nil
     end
-end
-
--- Noclip
-local function startNoclip()
-    if noclipConnection then return end
-    noclipConnection = RunService.Stepped:Connect(function()
-        if Config.NoclipEnabled and LocalPlayer.Character and Humanoid then
-            for _, part in pairs(LocalPlayer.Character:GetChildren()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
+    function Combat.autoKillLoop(Config, Utils)
+        while task.wait(Config.UpdateDelay or 0.1) do
+            if not Config.AutoKillEnabled then continue end
+            if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then continue end
+            if not LocalPlayer.Character:FindFirstChild("Knife") then continue end
+            local myRole = "Murderer"
+            local target
+            local best = math.huge
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Humanoid") then
+                    local h = plr.Character:FindFirstChild("HumanoidRootPart")
+                    if h and plr.Character.Humanoid.Health > 0 then
+                        local role = (plr.Backpack and (plr.Backpack:FindFirstChild("Gun") and "Sheriff" or plr.Backpack:FindFirstChild("Knife") and "Murderer")) or (plr.Character:FindFirstChild("Gun") and "Sheriff" or plr.Character:FindFirstChild("Knife") and "Murderer") or "Innocent"
+                        local priority = (role == "Sheriff") and 0 or 1
+                        local dist = (h.Position - LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                        if dist <= (Config.KillDistance or 30) and (priority < best or (priority == best and dist < best)) then
+                            target = plr
+                            best = priority
+                        end
+                    end
                 end
             end
-        end
-    end)
-end
-
-local function stopNoclip()
-    if noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-    end
-    if LocalPlayer.Character and Humanoid then
-        for _, part in pairs(LocalPlayer.Character:GetChildren()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                pcall(function()
+                    local knife = LocalPlayer.Character:FindFirstChild("Knife")
+                    if knife and knife:FindFirstChild("Handle") then
+                        knife.Handle.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0,0,-2)
+                        if knife.Activate then pcall(function() knife:Activate() end) end
+                    end
+                end)
             end
         end
     end
+    function Combat.init(Config, Utils)
+        if not pcall(function() return game:GetService("VirtualInputManager") end) then
+            if Config.DebugMode then Utils.System.log("[Combat] VirtualInputManager not available — AutoAim will be disabled.") end
+            Config.AutoAimEnabled = false
+        end
+        task.spawn(function() Combat.autoAimLoop(Config, Utils) end)
+        task.spawn(function() Combat.autoPickLoop(Config, Utils) end)
+        task.spawn(function() Combat.autoKillLoop(Config, Utils) end)
+    end
+    Modules.Combat = Combat
 end
 
--- Apply speed and jump changes
-local function updateMovement()
-    if Humanoid then
-        Humanoid.JumpPower = Config.JumpPower
-        Humanoid.WalkSpeed = Config.WalkSpeed
+-- modules/watchdog.lua (Inline)
+do
+    local Watchdog = {}
+    local RunService = game:GetService("RunService")
+    function Watchdog.init(Config, Utils)
+        task.spawn(function()
+            local last = tick()
+            while task.wait(10) do
+                local start = tick()
+                RunService.RenderStepped:Wait()
+                local delta = tick() - start
+                local fps = delta > 0 and 1 / delta or 60
+                if fps < 30 then
+                    if Config.DebugMode then Utils.System.log("⚠️ FPS drop to " .. math.floor(fps) .. ", pausing 5s") end
+                    task.wait(5)
+                end
+            end
+        end)
     end
+    Modules.Watchdog = Watchdog
 end
 
--- RayField Window
-local Window = Rayfield:CreateWindow({
-    Name = "MM2 Script by Quyendz",
-    LoadingTitle = "Đang tải MM2 Script",
-    LoadingSubtitle = "by Quyendz",
-    ConfigurationSaving = {
-        Enabled = false
-    },
-    Discord = {
-        Enabled = false,
-        Invite = "noinvitelinkyet",
-        RememberJoins = true
-    }
-})
-
--- Tab ESP
-local ESPTab = Window:CreateTab("ESP", 4483362458)
-
--- Toggle Innocent ESP
-ESPTab:CreateToggle({
-    Name = "ESP Người Dân (Xanh lá)",
-    CurrentValue = Config.ESPInnocentEnabled,
-    Callback = function(Value)
-        Config.ESPInnocentEnabled = Value
-        applyESP()
+-- modules/ui.lua (Inline)
+do
+    local UI = {}
+    local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+    local Players = game:GetService("Players")
+    local UserInputService = game:GetService("UserInputService")
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = workspace.CurrentCamera
+    local debugOverlay = nil
+    local function createDebugOverlay(Config)
+        if debugOverlay then debugOverlay:Destroy() end
+        debugOverlay = Instance.new("ScreenGui")
+        local frame = Instance.new("Frame")
+        local fpsLabel = Instance.new("TextLabel")
+        local pingLabel = Instance.new("TextLabel")
+        local activeLabel = Instance.new("TextLabel")
+        debugOverlay.Parent = game:GetService("CoreGui")
+        frame.Size = UDim2.new(0, 200, 0, 100)
+        frame.Position = UDim2.new(1, -210, 0, 10)
+        frame.BackgroundTransparency = 0.5
+        frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        frame.Draggable = true
+        fpsLabel.Parent = frame
+        fpsLabel.Size = UDim2.new(1, 0, 0, 30)
+        fpsLabel.Text = "FPS: Calculating..."
+        fpsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        pingLabel.Parent = frame
+        pingLabel.Size = UDim2.new(1, 0, 0, 30)
+        pingLabel.Position = UDim2.new(0, 0, 0, 30)
+        pingLabel.Text = "Ping: Calculating..."
+        pingLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        activeLabel.Parent = frame
+        activeLabel.Size = UDim2.new(1, 0, 0, 40)
+        activeLabel.Position = UDim2.new(0, 0, 0, 60)
+        activeLabel.Text = "Active: None"
+        activeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        local lastUpdate = tick()
+        local frameCount = 0
+        RunService.RenderStepped:Connect(function()
+            frameCount = frameCount + 1
+            if tick() - lastUpdate >= 1 then
+                fpsLabel.Text = "FPS: " .. math.floor(frameCount / (tick() - lastUpdate))
+                frameCount = 0
+                lastUpdate = tick()
+            end
+            pingLabel.Text = "Ping: " .. math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) .. "ms"
+            local activeModules = {}
+            if Config.AutoAimEnabled then table.insert(activeModules, "Aim") end
+            if Config.AutoKillEnabled then table.insert(activeModules, "Kill") end
+            if Config.AutoPickGunEnabled then table.insert(activeModules, "Pick") end
+            if Config.NoclipEnabled then table.insert(activeModules, "Noclip") end
+            activeLabel.Text = "Active: " .. table.concat(activeModules, ", ") or "None"
+        end)
+        return frame
     end
-})
-
--- Toggle Sheriff ESP
-ESPTab:CreateToggle({
-    Name = "ESP Cảnh Sát (Xanh dương)",
-    CurrentValue = Config.ESPSheriffEnabled,
-    Callback = function(Value)
-        Config.ESPSheriffEnabled = Value
-        applyESP()
-    end
-})
-
--- Toggle Murderer ESP
-ESPTab:CreateToggle({
-    Name = "ESP Sát Nhân (Đỏ)",
-    CurrentValue = Config.ESPMurdererEnabled,
-    Callback = function(Value)
-        Config.ESPMurdererEnabled = Value
-        applyESP()
-    end
-})
-
--- Tab Movement
-local MovementTab = Window:CreateTab("Di Chuyển", 4483362458)
-
--- Slider Jump Power
-MovementTab:CreateSlider({
-    Name = "Chiều Cao Nhảy",
-    Range = {50, 200},
-    Increment = 1,
-    CurrentValue = Config.JumpPower,
-    Callback = function(Value)
-        Config.JumpPower = Value
-        updateMovement()
-    end
-})
-
--- Slider Walk Speed
-MovementTab:CreateSlider({
-    Name = "Tốc Độ Chạy",
-    Range = {16, 100},
-    Increment = 1,
-    CurrentValue = Config.WalkSpeed,
-    Callback = function(Value)
-        Config.WalkSpeed = Value
-        updateMovement()
-    end
-})
-
--- Toggle Noclip
-MovementTab:CreateToggle({
-    Name = "NoClip",
-    CurrentValue = Config.NoclipEnabled,
-    Callback = function(Value)
-        Config.NoclipEnabled = Value
-        if Value then
-            startNoclip()
-        else
-            stopNoclip()
-        end
-    end
-})
-
--- Tab Combat
-local CombatTab = Window:CreateTab("Chiến Đấu", 4483362458)
-
--- Toggle Auto Aim and Shoot Killer
-CombatTab:CreateToggle({
-    Name = "Tự Nhắm và Bắn Sát Nhân",
-    CurrentValue = Config.AutoAimShootEnabled,
-    Callback = function(Value)
-        Config.AutoAimShootEnabled = Value
-        if Value then
-            startAutoAimShoot()
-        else
-            stopAutoAimShoot()
-        end
-    end
-})
-
--- Toggle Auto Pick Gun
-CombatTab:CreateToggle({
-    Name = "Tự Nhặt Súng",
-    CurrentValue = Config.AutoPickGunEnabled,
-    Callback = function(Value)
-        Config.AutoPickGunEnabled = Value
-        if Value then
-            startAutoPickGun()
-        else
-            stopAutoPickGun()
-        end
-    end
-})
-
--- Toggle Auto Kill when Murderer
-CombatTab:CreateToggle({
-    Name = "Tự Giết (Khi Là Sát Nhân)",
-    CurrentValue = Config.AutoKillEnabled,
-    Callback = function(Value)
-        Config.AutoKillEnabled = Value
-        if Value then
-            startAutoKill()
-        else
-            stopAutoKill()
-        end
-    end
-})
-
--- Initial setup
-updateMovement()
-
--- Update on respawn
-LocalPlayer.CharacterAdded:Connect(function(char)
-    Humanoid = char:WaitForChild("Humanoid", 5)
-    RootPart = char:WaitForChild("HumanoidRootPart", 5)
-    updateMovement()
-    task.wait(1) -- Đợi công cụ tải
-    applyESP()
-end)
-
--- Toggle menu with P key (optional for mobile)
-UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-    if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.P then
-        Window:Toggle()
-    end
-end)
-
-print("Script MM2 đã tải! Tất cả tính năng tắt mặc định. Nhấn P để bật menu (hoặc chạm UI trên mobile). By Quyendz")
+    function UI.init(Config, Utils)
+        local Window = Rayfield:CreateWindow({
+            Name = "MM2 Advanced v2.2",
+            LoadingTitle = "Đang tải MM2 Script",
+            LoadingSubtitle = "by Quyendz",
+            ConfigurationSaving = { Enabled = false },
+            Discord = { Enabled = false, Invite = "noinvitelinkyet", RememberJoins = true },
+            Theme = Config.Theme or "Dark",
+            Draggable = true
+        })
+        local ESPTab = Window:CreateTab("ESP", 4483362458)
+        ESPTab:CreateToggle({
+            Name = "ESP Người Dân (Xanh lá)",
+            CurrentValue = Config.ESPInnocentEnabled,
+            Callback = function(Value)
+                Config.ESPInnocentEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        ESPTab:CreateToggle({
+            Name = "ESP Cảnh Sát (Xanh dương)",
+            CurrentValue = Config.ESPSheriffEnabled,
+            Callback = function(Value)
+                Config.ESPSheriffEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        ESPTab:CreateToggle({
+            Name = "ESP Sát Nhân (Đỏ)",
+            CurrentValue = Config.ESPMurdererEnabled,
+            Callback = function(Value)
+                Config.ESPMurdererEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        local MovementTab = Window:CreateTab("Di Chuyển", 4483362458)
+        MovementTab:CreateSlider({
+            Name = "Chiều Cao Nhảy",
+            Range = {50, 200},
+            Increment = 1,
+            CurrentValue = Config.JumpPower,
+            Callback = function(Value)
+                Config.JumpPower = Value
+            end
+        })
+        MovementTab:CreateSlider({
+            Name = "Tốc Độ Chạy",
+            Range = {16, 100},
+            Increment = 1,
+            CurrentValue = Config.WalkSpeed,
+            Callback = function(Value)
+                Config.WalkSpeed = Value
+            end
+        })
+        MovementTab:CreateToggle({
+            Name = "NoClip",
+            CurrentValue = Config.NoclipEnabled,
+            Callback = function(Value)
+                Config.NoclipEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        local CombatTab = Window:CreateTab("Chiến Đấu", 4483362458)
+        CombatTab:CreateToggle({
+            Name = "Tự Nhắm và Bắn Sát Nhân",
+            CurrentValue = Config.AutoAimEnabled,
+            Callback = function(Value)
+                Config.AutoAimEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        CombatTab:CreateToggle({
+            Name = "Tự Nhặt Súng",
+            CurrentValue = Config.AutoPickGunEnabled,
+            Callback = function(Value)
+                Config.AutoPickGunEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        CombatTab:CreateToggle({
+            Name = "Tự Giết (Khi Là Sát Nhân)",
+            CurrentValue = Config.AutoKillEnabled,
+            Callback = function(Value)
+                Config.AutoKillEnabled = Value
+                createDebugOverlay(Config)
+            end
+        })
+        local SettingsTab = Window:CreateTab("Cài đặt", 4483362458)
+        SettingsTab:CreateToggle({
+            Name = "Chế độ Debug",
+            CurrentValue = Config.DebugMode,
+            Callback = function(Value)
+                Config.DebugMode = Value
+                createDebugOverlay(Config)
+            end
+        })
+        SettingsTab:CreateSlider({
+            Name = "Độ trễ cập nhật (s)",
+            Range = {0.1, 0.5},
+            Increment = 0.1,
+            CurrentValue = Config.UpdateDelay,
+            Callback = function(Value)
+                Config.UpdateDelay = Value
+                createDebugOverlay(Config)
+            end
+        })
+        local hour = os.date("*t").hour
+        Config.Theme = hour >= 18 or hour < 6 and "Dark" or "Light"
+        Window:ApplyTheme(Config.Theme)
+        UserInputService.InputBegan:Connect(function(input, gamePr
