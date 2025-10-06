@@ -1,40 +1,54 @@
 -- MM2 Advanced Script by Quyendz (R15 Compatible, Optimized for Mobile, RayField UI)
--- Version 1.0 | Date: October 05, 2025
--- Features: ESP (role-based highlights), Aimbot for Murderer, Auto Shoot Murderer, Auto Pick Sheriff Gun, Custom Jump Power & Walk Speed
--- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu if needed.
+-- Version 2.0 | Date: October 06, 2025 | Time: 12:29 PM +07
+-- Features: Separate ESP for Innocent, Sheriff, Murderer; Auto Aim & Shoot Killer without locking camera; Auto Pick Sheriff Gun; Custom Jump Power & Walk Speed; NoClip
+-- Usage: Paste into StarterPlayerScripts or run via executor. Press P to toggle menu if needed. All features off by default.
 -- Credits: By Quyendz - Professional Roblox Scripter with 5+ years experience
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-local Humanoid = LocalPlayer.Character:WaitForChild("Humanoid")
+local Humanoid = LocalPlayer.Character and LocalPlayer.Character:WaitForChild("Humanoid", 5) or nil
+local RootPart = LocalPlayer.Character and LocalPlayer.Character:WaitForChild("HumanoidRootPart", 5) or nil
 
--- Load RayField UI (mobile-friendly, modern design)
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- Load RayField UI with error handling
+local Rayfield
+local success, err = pcall(function()
+    Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+if not success then
+    warn("Failed to load RayField UI: " .. err .. ". Script will proceed without UI.")
+    return
+end
 
--- Global configurations
+-- Global configurations (all off by default)
 local Config = {
-    ESPEnabled = false,
-    AimbotEnabled = false,
-    AutoShootEnabled = false,
+    ESPInnocentEnabled = false,
+    ESPSheriffEnabled = false,
+    ESPMurdererEnabled = false,
+    AutoAimShootEnabled = false,
     AutoPickGunEnabled = false,
+    AutoKillEnabled = false,
+    NoclipEnabled = false,
     JumpPower = 50,
     WalkSpeed = 16,
+    ShootDelay = 0.2,
     RoleColors = {
-        Innocent = Color3.fromRGB(0, 255, 0),  -- Green for Innocent
-        Sheriff = Color3.fromRGB(0, 0, 255),   -- Blue for Sheriff
-        Murderer = Color3.fromRGB(255, 0, 0)   -- Red for Murderer
+        Innocent = Color3.fromRGB(0, 255, 0),  -- Xanh lá cho Innocent
+        Sheriff = Color3.fromRGB(0, 0, 255),   -- Xanh dương cho Sheriff
+        Murderer = Color3.fromRGB(255, 0, 0)   -- Đỏ cho Murderer
     }
 }
 
 -- Internal state
 local highlights = {}
 local roleCache = {}
-local aimConnection = nil
-local shootConnection = nil
+local aimShootConnection = nil
 local pickConnection = nil
+local autoKillConnection = nil
+local noclipConnection = nil
 
 -- Utility: Infer player role based on equipped tools
 local function inferRole(plr)
@@ -66,7 +80,7 @@ local function addHighlight(plr, role)
     if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
         local hl = Instance.new("Highlight")
         hl.Adornee = plr.Character
-        hl.FillTransparency = 1 -- Outline only
+        hl.FillTransparency = 1 -- Chỉ viền
         hl.OutlineColor = Config.RoleColors[role] or Color3.fromRGB(255, 255, 255)
         hl.OutlineTransparency = 0
         hl.Parent = plr.Character
@@ -74,14 +88,18 @@ local function addHighlight(plr, role)
     end
 end
 
--- Apply ESP to all players
+-- Apply ESP to all players (separate by role)
 local function applyESP()
     clearHighlights()
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             local role = inferRole(plr)
             roleCache[plr] = role
-            addHighlight(plr, role)
+            if (role == "Innocent" and Config.ESPInnocentEnabled) or
+               (role == "Sheriff" and Config.ESPSheriffEnabled) or
+               (role == "Murderer" and Config.ESPMurdererEnabled) then
+                addHighlight(plr, role)
+            end
         end
     end
 end
@@ -90,7 +108,7 @@ end
 Players.PlayerAdded:Connect(function(plr)
     if plr ~= LocalPlayer then
         plr.CharacterAdded:Connect(function(char)
-            task.wait(1) -- Wait for tools to load
+            task.wait(1) -- Đợi công cụ tải
             applyESP()
         end)
         plr.Backpack.ChildAdded:Connect(function()
@@ -100,44 +118,28 @@ Players.PlayerAdded:Connect(function(plr)
 end)
 
 LocalPlayer.CharacterAdded:Connect(function(char)
-    Humanoid = char:WaitForChild("Humanoid")
-    task.wait(1) -- Wait for tools to load
+    Humanoid = char:WaitForChild("Humanoid", 5)
+    RootPart = char:WaitForChild("HumanoidRootPart", 5)
+    task.wait(1) -- Đợi công cụ tải
     applyESP()
 end)
 
--- Initial ESP application
-applyESP()
-
--- Aimbot for Murderer
-local function startAimbot()
-    if aimConnection then return end
-    aimConnection = RunService.RenderStepped:Connect(function()
-        for plr, role in pairs(roleCache) do
-            if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, plr.Character.HumanoidRootPart.Position)
-                break
-            end
-        end
-    end)
-end
-
-local function stopAimbot()
-    if aimConnection then
-        aimConnection:Disconnect()
-        aimConnection = nil
-    end
-end
-
--- Auto Shoot Murderer
-local function startAutoShoot()
-    if shootConnection then return end
-    shootConnection = RunService.RenderStepped:Connect(function()
-        if LocalPlayer.Character:FindFirstChild("Gun") then
+-- Auto Aim and Shoot Killer (no camera lock)
+local function startAutoAimShoot()
+    if aimShootConnection then return end
+    aimShootConnection = RunService.RenderStepped:Connect(function()
+        if Config.AutoAimShootEnabled and Humanoid and LocalPlayer.Character:FindFirstChild("Gun") then
             for plr, role in pairs(roleCache) do
                 if role == "Murderer" and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-                    task.wait(0.1) -- Delay for next shot
-                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                    local direction = (plr.Character.HumanoidRootPart.Position - RootPart.Position).Unit
+                    local lookVector = Camera.CFrame.LookVector
+                    if direction:Dot(lookVector) > 0.9 then -- Check if facing Killer roughly
+                        pcall(function()
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                            task.wait(Config.ShootDelay)
+                            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                        end)
+                    end
                     break
                 end
             end
@@ -145,10 +147,10 @@ local function startAutoShoot()
     end)
 end
 
-local function stopAutoShoot()
-    if shootConnection then
-        shootConnection:Disconnect()
-        shootConnection = nil
+local function stopAutoAimShoot()
+    if aimShootConnection then
+        aimShootConnection:Disconnect()
+        aimShootConnection = nil
     end
 end
 
@@ -156,12 +158,14 @@ end
 local function startAutoPickGun()
     if pickConnection then return end
     pickConnection = RunService.Heartbeat:Connect(function()
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if roleCache[plr] == "Sheriff" and plr.Character and plr.Character.Humanoid.Health <= 0 then
-                for _, obj in ipairs(workspace:GetChildren()) do
-                    if obj.Name == "Gun" and obj:IsA("Tool") then
-                        obj.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
-                        break
+        if Config.AutoPickGunEnabled and Humanoid then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if roleCache[plr] == "Sheriff" and plr.Character and plr.Character.Humanoid.Health <= 0 then
+                    for _, obj in ipairs(workspace:GetChildren()) do
+                        if obj.Name == "Gun" and obj:IsA("Tool") then
+                            obj.Handle.CFrame = LocalPlayer.Character.HumanoidRootPart.CFrame
+                            break
+                        end
                     end
                 end
             end
@@ -176,65 +180,175 @@ local function stopAutoPickGun()
     end
 end
 
+-- Auto Kill when Murderer
+local function startAutoKill()
+    if autoKillConnection then return end
+    autoKillConnection = RunService.RenderStepped:Connect(function()
+        if Config.AutoKillEnabled and Humanoid and LocalPlayer.Character:FindFirstChild("Knife") then
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+                    pcall(function()
+                        LocalPlayer.Character.Knife.CFrame = plr.Character.HumanoidRootPart.CFrame
+                    end)
+                    break
+                end
+            end
+        end
+    end)
+end
+
+local function stopAutoKill()
+    if autoKillConnection then
+        autoKillConnection:Disconnect()
+        autoKillConnection = nil
+    end
+end
+
+-- Noclip
+local function startNoclip()
+    if noclipConnection then return end
+    noclipConnection = RunService.Stepped:Connect(function()
+        if Config.NoclipEnabled and LocalPlayer.Character and Humanoid then
+            for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                end
+            end
+        end
+    end)
+end
+
+local function stopNoclip()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+    if LocalPlayer.Character and Humanoid then
+        for _, part in pairs(LocalPlayer.Character:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+end
+
 -- Apply speed and jump changes
 local function updateMovement()
-    Humanoid.JumpPower = Config.JumpPower
-    Humanoid.WalkSpeed = Config.WalkSpeed
+    if Humanoid then
+        Humanoid.JumpPower = Config.JumpPower
+        Humanoid.WalkSpeed = Config.WalkSpeed
+    end
 end
 
 -- RayField Window
 local Window = Rayfield:CreateWindow({
     Name = "MM2 Script by Quyendz",
-    LoadingTitle = "Loading MM2 Script",
+    LoadingTitle = "Đang tải MM2 Script",
     LoadingSubtitle = "by Quyendz",
     ConfigurationSaving = {
         Enabled = false
+    },
+    Discord = {
+        Enabled = false,
+        Invite = "noinvitelinkyet",
+        RememberJoins = true
     }
 })
 
-local MainTab = Window:CreateTab("Main", 4483362458)
+-- Tab ESP
+local ESPTab = Window:CreateTab("ESP", 4483362458)
 
--- Toggle ESP
-MainTab:CreateToggle({
-    Name = "ESP",
-    CurrentValue = Config.ESPEnabled,
+-- Toggle Innocent ESP
+ESPTab:CreateToggle({
+    Name = "ESP Người Dân (Xanh lá)",
+    CurrentValue = Config.ESPInnocentEnabled,
     Callback = function(Value)
-        Config.ESPEnabled = Value
+        Config.ESPInnocentEnabled = Value
         applyESP()
     end
 })
 
--- Toggle Aimbot
-MainTab:CreateToggle({
-    Name = "Aimbot Murderer",
-    CurrentValue = Config.AimbotEnabled,
+-- Toggle Sheriff ESP
+ESPTab:CreateToggle({
+    Name = "ESP Cảnh Sát (Xanh dương)",
+    CurrentValue = Config.ESPSheriffEnabled,
     Callback = function(Value)
-        Config.AimbotEnabled = Value
+        Config.ESPSheriffEnabled = Value
+        applyESP()
+    end
+})
+
+-- Toggle Murderer ESP
+ESPTab:CreateToggle({
+    Name = "ESP Sát Nhân (Đỏ)",
+    CurrentValue = Config.ESPMurdererEnabled,
+    Callback = function(Value)
+        Config.ESPMurdererEnabled = Value
+        applyESP()
+    end
+})
+
+-- Tab Movement
+local MovementTab = Window:CreateTab("Di Chuyển", 4483362458)
+
+-- Slider Jump Power
+MovementTab:CreateSlider({
+    Name = "Chiều Cao Nhảy",
+    Range = {50, 200},
+    Increment = 1,
+    CurrentValue = Config.JumpPower,
+    Callback = function(Value)
+        Config.JumpPower = Value
+        updateMovement()
+    end
+})
+
+-- Slider Walk Speed
+MovementTab:CreateSlider({
+    Name = "Tốc Độ Chạy",
+    Range = {16, 100},
+    Increment = 1,
+    CurrentValue = Config.WalkSpeed,
+    Callback = function(Value)
+        Config.WalkSpeed = Value
+        updateMovement()
+    end
+})
+
+-- Toggle Noclip
+MovementTab:CreateToggle({
+    Name = "NoClip",
+    CurrentValue = Config.NoclipEnabled,
+    Callback = function(Value)
+        Config.NoclipEnabled = Value
         if Value then
-            startAimbot()
+            startNoclip()
         else
-            stopAimbot()
+            stopNoclip()
         end
     end
 })
 
--- Toggle Auto Shoot
-MainTab:CreateToggle({
-    Name = "Auto Shoot Murderer",
-    CurrentValue = Config.AutoShootEnabled,
+-- Tab Combat
+local CombatTab = Window:CreateTab("Chiến Đấu", 4483362458)
+
+-- Toggle Auto Aim and Shoot Killer
+CombatTab:CreateToggle({
+    Name = "Tự Nhắm và Bắn Sát Nhân",
+    CurrentValue = Config.AutoAimShootEnabled,
     Callback = function(Value)
-        Config.AutoShootEnabled = Value
+        Config.AutoAimShootEnabled = Value
         if Value then
-            startAutoShoot()
+            startAutoAimShoot()
         else
-            stopAutoShoot()
+            stopAutoAimShoot()
         end
     end
 })
 
 -- Toggle Auto Pick Gun
-MainTab:CreateToggle({
-    Name = "Auto Pick Gun",
+CombatTab:CreateToggle({
+    Name = "Tự Nhặt Súng",
     CurrentValue = Config.AutoPickGunEnabled,
     Callback = function(Value)
         Config.AutoPickGunEnabled = Value
@@ -246,27 +360,17 @@ MainTab:CreateToggle({
     end
 })
 
--- Slider Jump Power
-MainTab:CreateSlider({
-    Name = "Jump Power",
-    Range = {50, 200},
-    Increment = 1,
-    CurrentValue = Config.JumpPower,
+-- Toggle Auto Kill when Murderer
+CombatTab:CreateToggle({
+    Name = "Tự Giết (Khi Là Sát Nhân)",
+    CurrentValue = Config.AutoKillEnabled,
     Callback = function(Value)
-        Config.JumpPower = Value
-        updateMovement()
-    end
-})
-
--- Slider Walk Speed
-MainTab:CreateSlider({
-    Name = "Walk Speed",
-    Range = {16, 100},
-    Increment = 1,
-    CurrentValue = Config.WalkSpeed,
-    Callback = function(Value)
-        Config.WalkSpeed = Value
-        updateMovement()
+        Config.AutoKillEnabled = Value
+        if Value then
+            startAutoKill()
+        else
+            stopAutoKill()
+        end
     end
 })
 
@@ -275,8 +379,18 @@ updateMovement()
 
 -- Update on respawn
 LocalPlayer.CharacterAdded:Connect(function(char)
-    Humanoid = char:WaitForChild("Humanoid")
+    Humanoid = char:WaitForChild("Humanoid", 5)
+    RootPart = char:WaitForChild("HumanoidRootPart", 5)
     updateMovement()
-    task.wait(1) -- Wait for tools to load
+    task.wait(1) -- Đợi công cụ tải
     applyESP()
 end)
+
+-- Toggle menu with P key (optional for mobile)
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent and input.KeyCode == Enum.KeyCode.P then
+        Window:Toggle()
+    end
+end)
+
+print("Script MM2 đã tải! Tất cả tính năng tắt mặc định. Nhấn P để bật menu (hoặc chạm UI trên mobile). By Quyendz")
