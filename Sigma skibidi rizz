@@ -1,528 +1,253 @@
---// Rayfield UI (as you provided)
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+-- NameProtect Script
+-- Đặt trong StarterPlayerScripts
+-- Tác giả: Quyendz 🥀
+-- Mục đích: Ẩn tên thật của người chơi trong UI, chat, và nhân vật
 
---// Services
-local Players       = game:GetService("Players")
-local RunService    = game:GetService("RunService")
-local TweenService  = game:GetService("TweenService")
-local Lighting      = game:GetService("Lighting")
-local Stats         = game:GetService("Stats")
-local LocalPlayer   = Players.LocalPlayer
-local Camera        = workspace.CurrentCamera
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local Chat = game:GetService("Chat")
+local LocalPlayer = Players.LocalPlayer
+local CorrectKey = "quyendzvailon" -- Key xác thực cố định
 
---// Config (defaults)
-local AimbotEnabled   = false
-local TeamCheck       = true
-local WallCheck       = true
-local FOVRadius       = 100
-local ESPEnabled      = false
-local ESPTeamCheck    = true
-local HighlightColor  = Color3.fromRGB(255, 0, 0)
-local FOVRainbow      = false
-local FOVColor        = Color3.fromRGB(0, 255, 0)
-local AimSmoothing    = 0.4 -- 0..1
+-- Biến lưu trữ
+local nameMap = {} -- Bảng ánh xạ tên thật -> tên giả
+local counter = 1 -- Bộ đếm cho tên giả
+local prefix = "Protect" -- Tiền tố tên giả
+local savedKeyFile = "SavedKey.txt" -- Tên file lưu key
 
---// FOV Circle (drawn with UIStroke+UICorner)
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "Quyendz_FOVGUI"
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = game.CoreGui
-
-local FOVCircle = Instance.new("Frame")
-FOVCircle.Name = "FOVCircle"
-FOVCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-FOVCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
-FOVCircle.Size = UDim2.new(0, FOVRadius * 2, 0, FOVRadius * 2)
-FOVCircle.BackgroundTransparency = 1
-FOVCircle.Visible = false
-FOVCircle.Parent = ScreenGui
-
-local FOVStroke = Instance.new("UIStroke")
-FOVStroke.Thickness = 2
-FOVStroke.Color = FOVColor
-FOVStroke.Parent = FOVCircle
-
-local FOVCorner = Instance.new("UICorner")
-FOVCorner.CornerRadius = UDim.new(1, 0)
-FOVCorner.Parent = FOVCircle
-
---// FPS & Ping Display
-local StatsLabel = Instance.new("TextLabel")
-StatsLabel.Name = "StatsLabel"
-StatsLabel.Parent = ScreenGui
-StatsLabel.Size = UDim2.new(0, 220, 0, 20)
-StatsLabel.Position = UDim2.new(1, -230, 0, 10)
-StatsLabel.BackgroundTransparency = 1
-StatsLabel.TextColor3 = Color3.new(1, 1, 1)
-StatsLabel.TextStrokeTransparency = 0.2
-StatsLabel.Font = Enum.Font.Code
-StatsLabel.TextSize = 16
-StatsLabel.TextXAlignment = Enum.TextXAlignment.Right
-
-local lastUpdate = tick()
-
--- simple FPS calc
-local frameTimes = {}
-RunService.RenderStepped:Connect(function(dt)
-	table.insert(frameTimes, tick())
-	while frameTimes[1] and tick() - frameTimes[1] > 1 do
-		table.remove(frameTimes, 1)
-	end
-	if tick() - lastUpdate >= 0.3 then
-		local fps = #frameTimes
-		local ping = tonumber(string.match(Stats.Network.ServerStatsItem["Data Ping"]:GetValueString(), "%d+")) or 0
-		StatsLabel.Text = ("FPS: %d | Ping: %dms"):format(fps, ping)
-		lastUpdate = tick()
-	end
-end)
-
---// Rayfield Window
-local Window = Rayfield:CreateWindow({
-	Name = "Aimbot FOV — Made by Quyendz",
-	LoadingTitle = "Loading UI...",
-	LoadingSubtitle = "Made by Quyendz",
-	ConfigurationSaving = {
-		Enabled = true,
-		FolderName = "AimbotFOV",
-		FileName = "settings"
-	},
-	KeySystem = false
-})
-
---// Helpers
-local function getHead(cfChar)
-	-- Prefer Head; fallback to UpperTorso/HRP
-	if not cfChar then return nil end
-	return cfChar:FindFirstChild("Head")
-		or cfChar:FindFirstChild("UpperTorso")
-		or cfChar:FindFirstChild("HumanoidRootPart")
+-- Đọc key đã lưu
+local function loadSavedKey()
+    local success, result = pcall(function()
+        if isfile(savedKeyFile) then
+            return readfile(savedKeyFile)
+        end
+    end)
+    return success and result == CorrectKey and result or nil
 end
 
-local function isAlive(player)
-	local char = player.Character
-	if not char then return false end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	return hum and hum.Health > 0
+-- Hàm tạo tên giả cho người chơi
+local function getFakeName(player)
+    if not nameMap[player] then
+        if player == LocalPlayer then
+            nameMap[player] = "NameProtect"
+        else
+            nameMap[player] = prefix .. tostring(counter)
+            counter = counter + 1
+        end
+    end
+    return nameMap[player]
 end
 
-local function inFOV(screenPosV2)
-	local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-	return (screenPosV2 - center).Magnitude <= FOVRadius
+-- Hàm thay thế văn bản trong UI
+local function replaceTextInUI(obj)
+    if not (obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox")) then
+        return
+    end
+    if not obj.Text then
+        return
+    end
+    local text = obj.Text
+    for player, fakeName in pairs(nameMap) do
+        -- Thay thế cả tên người chơi và tên hiển thị, bỏ qua case
+        text = text:gsub(player.Name, fakeName):gsub(player.DisplayName, fakeName)
+    end
+    obj.Text = text
 end
 
-local function visibleFromCamera(targetPosition, targetCharacter)
-	if not WallCheck then return true end
-	local origin = Camera.CFrame.Position
-	local direction = (targetPosition - origin)
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {
-		LocalPlayer.Character or nil,
-		Camera,
-	}
-	local result = workspace:Raycast(origin, direction, rayParams)
-	-- if we hit nothing, assume clear; if we hit something, it must belong to the target
-	if not result then return true end
-	return result.Instance and targetCharacter and result.Instance:IsDescendantOf(targetCharacter)
+-- Hàm quét và theo dõi UI
+local function scanAndMonitorUI(gui)
+    if not gui then return end
+    for _, obj in ipairs(gui:GetDescendants()) do
+        pcall(replaceTextInUI, obj) -- Dùng pcall để tránh lỗi
+    end
+    gui.DescendantAdded:Connect(function(obj)
+        pcall(replaceTextInUI, obj)
+    end)
 end
 
---// ESP (Highlight outline only)
-local function applyHighlight(player)
-	if player == LocalPlayer then return end
-	local char = player.Character
-	if not char then return end
-
-	local existing = char:FindFirstChild("ESPHighlight")
-	if not existing then
-		local highlight = Instance.new("Highlight")
-		highlight.Name = "ESPHighlight"
-		highlight.FillTransparency = 1
-		highlight.OutlineTransparency = 0
-		highlight.OutlineColor = HighlightColor
-		highlight.Parent = char
-		highlight.Enabled = ESPEnabled and (not ESPTeamCheck or player.Team ~= LocalPlayer.Team)
-	else
-		existing.OutlineColor = HighlightColor
-		existing.Enabled = ESPEnabled and (not ESPTeamCheck or player.Team ~= LocalPlayer.Team)
-	end
+-- Hàm cập nhật tên hiển thị trên nhân vật
+local function updateCharacterName(player)
+    local fakeName = getFakeName(player)
+    if not player.Character then return end
+    local humanoid = player.Character:WaitForChild("Humanoid", 5) -- Đợi tối đa 5 giây
+    if humanoid then
+        pcall(function()
+            humanoid.DisplayName = fakeName
+            humanoid.Name = fakeName
+        end)
+    end
 end
 
-local function setupPlayerESP(plr)
-	if plr == LocalPlayer then return end
-	plr.CharacterAdded:Connect(function()
-		repeat task.wait() until plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
-		applyHighlight(plr)
-	end)
-	-- Also react to team changes
-	plr:GetPropertyChangedSignal("Team"):Connect(function()
-		if plr.Character then
-			local h = plr.Character:FindFirstChild("ESPHighlight")
-			if h then
-				h.Enabled = ESPEnabled and (not ESPTeamCheck or plr.Team ~= LocalPlayer.Team)
-			end
-		end
-	end)
-	-- If character already exists
-	if plr.Character then
-		applyHighlight(plr)
-	end
+-- Hàm chính của NameProtect
+local function startNameProtect()
+    -- Gán tên giả cho LocalPlayer
+    getFakeName(LocalPlayer)
+
+    -- Xử lý tất cả người chơi hiện tại
+    for _, player in ipairs(Players:GetPlayers()) do
+        getFakeName(player)
+        updateCharacterName(player)
+        -- Theo dõi khi nhân vật tái sinh
+        player.CharacterAdded:Connect(function(character)
+            task.wait(0.1) -- Đợi nhân vật tải
+            updateCharacterName(player)
+        end)
+    end
+
+    -- Theo dõi người chơi mới
+    Players.PlayerAdded:Connect(function(player)
+        getFakeName(player)
+        player.CharacterAdded:Connect(function(character)
+            task.wait(0.1) -- Đợi nhân vật tải
+            updateCharacterName(player)
+        end)
+        updateCharacterName(player)
+    end)
+
+    -- Quét và theo dõi CoreGui và PlayerGui
+    pcall(function()
+        scanAndMonitorUI(CoreGui)
+        scanAndMonitorUI(LocalPlayer:WaitForChild("PlayerGui", 5))
+    end)
+
+    -- Theo dõi GUI mới trong CoreGui
+    CoreGui.ChildAdded:Connect(function(child)
+        if child:IsA("ScreenGui") then
+            pcall(scanAndMonitorUI, child)
+        end
+    end)
+
+    -- Xử lý chat để thay thế tên
+    pcall(function()
+        Chat:RegisterChatCallback(Enum.ChatCallbackType.OnClientFormattingMessage, function(message)
+            for player, fakeName in pairs(nameMap) do
+                message.Message = message.Message:gsub(player.Name, fakeName):gsub(player.DisplayName, fakeName)
+            end
+            return message
+        end)
+    end)
+
+    -- Hiển thị thông báo khởi động
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    screenGui.IgnoreGuiInset = true
+    screenGui.ResetOnSpawn = false
+
+    local label = Instance.new("TextLabel")
+    label.Parent = screenGui
+    label.Size = UDim2.new(1, 0, 0, 50)
+    label.BackgroundTransparency = 1
+    label.Text = "NameProtect by Quyendz 🥀"
+    label.TextColor3 = Color3.fromRGB(0, 255, 127)
+    label.TextScaled = true
+    label.TextStrokeTransparency = 0.8
+    label.Font = Enum.Font.SourceSansBold
+
+    task.spawn(function()
+        task.wait(5)
+        screenGui:Destroy()
+    end)
 end
 
-for _, p in ipairs(Players:GetPlayers()) do
-	setupPlayerESP(p)
+-- Hàm tạo UI nhập key
+local function createKeyInputUI()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    screenGui.ResetOnSpawn = false
+    screenGui.IgnoreGuiInset = true
+
+    local frame = Instance.new("Frame")
+    frame.Parent = screenGui
+    frame.Size = UDim2.new(0, 300, 0, 200)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -100)
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = frame
+
+    local textBox = Instance.new("TextBox")
+    textBox.Parent = frame
+    textBox.Size = UDim2.new(1, -20, 0, 40)
+    textBox.Position = UDim2.new(0, 10, 0, 20)
+    textBox.PlaceholderText = "Enter Key..."
+    textBox.Text = ""
+    textBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    textBox.TextColor3 = Color3.new(1, 1, 1)
+    textBox.TextScaled = true
+    textBox.ClearTextOnFocus = false
+    textBox.BorderSizePixel = 0
+
+    local textBoxCorner = Instance.new("UICorner")
+    textBoxCorner.CornerRadius = UDim.new(0, 4)
+    textBoxCorner.Parent = textBox
+
+    local rememberButton = Instance.new("TextButton")
+    rememberButton.Parent = frame
+    rememberButton.Size = UDim2.new(0, 25, 0, 25)
+    rememberButton.Position = UDim2.new(0, 10, 0, 70)
+    rememberButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+    rememberButton.Text = "✘"
+    rememberButton.TextColor3 = Color3.new(1, 0, 0)
+    rememberButton.TextScaled = true
+    rememberButton.BorderSizePixel = 0
+
+    local rememberChecked = false
+    rememberButton.MouseButton1Click:Connect(function()
+        rememberChecked = not rememberChecked
+        rememberButton.Text = rememberChecked and "✔" or "✘"
+        rememberButton.TextColor3 = rememberChecked and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+    end)
+
+    local rememberLabel = Instance.new("TextLabel")
+    rememberLabel.Parent = frame
+    rememberLabel.Size = UDim2.new(1, -40, 0, 25)
+    rememberLabel.Position = UDim2.new(0, 45, 0, 70)
+    rememberLabel.Text = "Remember Key"
+    rememberLabel.TextColor3 = Color3.new(1, 1, 1)
+    rememberLabel.BackgroundTransparency = 1
+    rememberLabel.TextScaled = true
+    rememberLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local confirmButton = Instance.new("TextButton")
+    confirmButton.Parent = frame
+    confirmButton.Size = UDim2.new(1, -20, 0, 40)
+    confirmButton.Position = UDim2.new(0, 10, 0, 120)
+    confirmButton.Text = "Confirm"
+    confirmButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    confirmButton.TextColor3 = Color3.new(1, 1, 1)
+    confirmButton.TextScaled = true
+    confirmButton.BorderSizePixel = 0
+
+    local confirmButtonCorner = Instance.new("UICorner")
+    confirmButtonCorner.CornerRadius = UDim.new(0, 4)
+    confirmButtonCorner.Parent = confirmButton
+
+    confirmButton.MouseButton1Click:Connect(function()
+        if textBox.Text == CorrectKey then
+            if rememberChecked then
+                pcall(function()
+                    writefile(savedKeyFile, textBox.Text)
+                end)
+            end
+            screenGui:Destroy()
+            startNameProtect()
+        else
+            textBox.Text = "❌ Wrong key!"
+            task.wait(1)
+            textBox.Text = ""
+            textBox.PlaceholderText = "Enter Key..."
+        end
+    end)
 end
-Players.PlayerAdded:Connect(setupPlayerESP)
 
---// Aimbot target selection
-local function getClosestTarget()
-	local closest, shortDist
-	shortDist = FOVRadius
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and isAlive(p) then
-			if TeamCheck and p.Team == LocalPlayer.Team then
-				continue
-			end
-			local char = p.Character
-			local head = getHead(char)
-			if head then
-				local pos, onScr = Camera:WorldToViewportPoint(head.Position)
-				if onScr then
-					local screenV2 = Vector2.new(pos.X, pos.Y)
-					if inFOV(screenV2) and visibleFromCamera(head.Position, char) then
-						local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-						local dist = (screenV2 - center).Magnitude
-						if dist <= shortDist then
-							shortDist = dist
-							closest = p
-						end
-					end
-				end
-			end
-		end
-	end
-	return closest
+-- Khởi chạy
+local savedKey = loadSavedKey()
+if savedKey == CorrectKey then
+    startNameProtect()
+else
+    createKeyInputUI()
 end
-
---// Render loop
-RunService.RenderStepped:Connect(function()
-	if FOVRainbow then
-		local hue = (tick() % 5) / 5
-		FOVStroke.Color = Color3.fromHSV(hue, 1, 1)
-	else
-		FOVStroke.Color = FOVColor
-	end
-
-	if AimbotEnabled then
-		local target = getClosestTarget()
-		if target and target.Character then
-			local head = getHead(target.Character)
-			if head then
-				local camPos = Camera.CFrame.Position
-				local newCF = CFrame.new(camPos, head.Position)
-				Camera.CFrame = Camera.CFrame:Lerp(newCF, AimSmoothing)
-			end
-		end
-	end
-end)
-
---// UI: Main Tab
-local MainTab = Window:CreateTab("Main", 4483362458)
-
-MainTab:CreateToggle({
-	Name = "Enable Aimbot",
-	CurrentValue = false,
-	Callback = function(val)
-		AimbotEnabled = val
-		FOVCircle.Visible = val
-	end
-})
-
-MainTab:CreateToggle({
-	Name = "Team Check",
-	CurrentValue = true,
-	Callback = function(val)
-		TeamCheck = val
-	end
-})
-
-MainTab:CreateToggle({
-	Name = "Wall Check",
-	CurrentValue = true,
-	Callback = function(val)
-		WallCheck = val
-	end
-})
-
-MainTab:CreateSlider({
-	Name = "FOV Size",
-	Range = {50, 300},
-	Increment = 5,
-	CurrentValue = 100,
-	Callback = function(value)
-		FOVRadius = value
-		FOVCircle.Size = UDim2.new(0, value * 2, 0, value * 2)
-	end
-})
-
---// UI: ESP Tab
-local ESPTab = Window:CreateTab("ESP", 4483362458)
-
-ESPTab:CreateToggle({
-	Name = "Enable Outline (Highlight)",
-	CurrentValue = false,
-	Callback = function(val)
-		ESPEnabled = val
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LocalPlayer and p.Character then
-				local h = p.Character:FindFirstChild("ESPHighlight")
-				if h then
-					h.Enabled = ESPEnabled and (not ESPTeamCheck or p.Team ~= LocalPlayer.Team)
-				else
-					applyHighlight(p)
-				end
-			end
-		end
-	end
-})
-
-ESPTab:CreateToggle({
-	Name = "Team Check for ESP",
-	CurrentValue = true,
-	Callback = function(val)
-		ESPTeamCheck = val
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LocalPlayer and p.Character then
-				local h = p.Character:FindFirstChild("ESPHighlight")
-				if h then
-					h.Enabled = ESPEnabled and (not ESPTeamCheck or p.Team ~= LocalPlayer.Team)
-				end
-			end
-		end
-	end
-})
-
-ESPTab:CreateColorPicker({
-	Name = "Outline Color",
-	Color = HighlightColor,
-	Callback = function(val)
-		HighlightColor = val
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Character then
-				local h = p.Character:FindFirstChild("ESPHighlight")
-				if h then
-					h.OutlineColor = HighlightColor
-				end
-			end
-		end
-	end
-})
-
---// UI: Visual Tab
-local VisualTab = Window:CreateTab("Visual", 4483362458)
-
-VisualTab:CreateToggle({
-	Name = "Rainbow FOV",
-	CurrentValue = false,
-	Callback = function(val)
-		FOVRainbow = val
-	end
-})
-
-VisualTab:CreateColorPicker({
-	Name = "FOV Color",
-	Color = FOVColor,
-	Callback = function(val)
-		FOVColor = val
-		if not FOVRainbow then
-			FOVStroke.Color = val
-		end
-	end
-})
-
-VisualTab:CreateToggle({
-	Name = "Slow Motion PvP",
-	CurrentValue = false,
-	Callback = function(enabled)
-		if enabled then
-			local tween = TweenService:Create(Lighting, TweenInfo.new(0.5), {ClockTime = 0.25})
-			tween:Play()
-			workspace.Gravity = 100
-		else
-			local tween = TweenService:Create(Lighting, TweenInfo.new(0.5), {ClockTime = 12})
-			tween:Play()
-			workspace.Gravity = 196.2
-		end
-	end
-})
-
--- Preserve original lighting to restore in Sky toggle
-local OriginalAmbient           = Lighting.Ambient
-local OriginalOutdoorAmbient    = Lighting.OutdoorAmbient
-local OriginalBrightness        = Lighting.Brightness
-local OriginalClockTime         = Lighting.ClockTime
-local OriginalSky               = Lighting:FindFirstChildOfClass("Sky")
-local StarsGui                  = nil
-
-VisualTab:CreateToggle({
-	Name = "Soft PvP Sky Mode",
-	CurrentValue = false,
-	Callback = function(val)
-		if val then
-			Lighting.Ambient = Color3.fromRGB(120, 130, 140)
-			Lighting.OutdoorAmbient = Color3.fromRGB(90, 100, 110)
-			Lighting.Brightness = 1.5
-			Lighting.ClockTime = 18.5
-
-			if OriginalSky then OriginalSky.Enabled = false end
-			local PvPSky = Instance.new("Sky")
-			PvPSky.Name = "PvPSky"
-			PvPSky.SkyboxBk = "rbxassetid://1022207611"
-			PvPSky.SkyboxDn = "rbxassetid://1022207683"
-			PvPSky.SkyboxFt = "rbxassetid://1022207746"
-			PvPSky.SkyboxLf = "rbxassetid://1022207814"
-			PvPSky.SkyboxRt = "rbxassetid://1022207886"
-			PvPSky.SkyboxUp = "rbxassetid://1022207958"
-			PvPSky.Parent = Lighting
-
-			StarsGui = Instance.new("ScreenGui")
-			StarsGui.Name = "StarsGui"
-			StarsGui.IgnoreGuiInset = true
-			StarsGui.ResetOnSpawn = false
-			StarsGui.Parent = game.CoreGui
-
-			for i = 1, 50 do
-				local star = Instance.new("Frame")
-				star.Size = UDim2.new(0, 2, 0, 2)
-				star.Position = UDim2.new(math.random(), 0, math.random(), 0)
-				star.BackgroundColor3 = Color3.new(1, 1, 1)
-				star.BackgroundTransparency = 0.7
-				star.BorderSizePixel = 0
-				star.AnchorPoint = Vector2.new(0.5, 0.5)
-				star.Parent = StarsGui
-
-				task.spawn(function()
-					while StarsGui and StarsGui.Parent do
-						star.BackgroundTransparency = 0.5 + math.sin(tick() * math.random(1,3)) * 0.4
-						task.wait(0.1)
-					end
-				end)
-			end
-		else
-			Lighting.Ambient = OriginalAmbient
-			Lighting.OutdoorAmbient = OriginalOutdoorAmbient
-			Lighting.Brightness = OriginalBrightness
-			Lighting.ClockTime = OriginalClockTime
-
-			local PvPSky = Lighting:FindFirstChild("PvPSky")
-			if PvPSky then PvPSky:Destroy() end
-			if OriginalSky then OriginalSky.Enabled = true end
-
-			if StarsGui then
-				StarsGui:Destroy()
-				StarsGui = nil
-			end
-		end
-	end
-})
-
---// UI: Optimization Tab (kept as-is, translated)
-local OptimTab = Window:CreateTab("Optimization", 4483362458)
-
-OptimTab:CreateButton({
-	Name = "Optimize FPS (performance)",
-	Callback = function()
-		settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-		for _, v in ipairs(workspace:GetDescendants()) do
-			if v:IsA("BasePart") then
-				v.Material = Enum.Material.SmoothPlastic
-				v.Reflectance = 0
-			elseif v:IsA("Decal") then
-				v.Transparency = 1
-			elseif v:IsA("ParticleEmitter") or v:IsA("Trail") then
-				v.Enabled = false
-			end
-		end
-	end
-})
-
-local FPSUnlockerEnabled = false
-OptimTab:CreateToggle({
-	Name = "FPS Unlocker (over 60)",
-	CurrentValue = false,
-	Callback = function(val)
-		FPSUnlockerEnabled = val
-		if setfpscap then
-			if val then setfpscap(1000) else setfpscap(60) end
-		end
-	end
-})
-
-OptimTab:CreateButton({
-	Name = "Optimize Ping (less network visuals)",
-	Callback = function()
-		for _, obj in ipairs(workspace:GetDescendants()) do
-			if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
-				obj.Enabled = false
-			elseif obj:IsA("Explosion") then
-				if obj:IsA("Explosion") and obj.Parent then
-					-- Some Explosions don't have Visible, ignore safely
-					pcall(function() obj.Visible = false end)
-				end
-			end
-		end
-		settings().Physics.AllowSleep = true
-		settings().Physics.PhysicsEnvironmentalThrottle = Enum.EnviromentalPhysicsThrottle.Default
-
-		local L = game:GetService("Lighting")
-		L.GlobalShadows = false
-		L.FogEnd = 100000
-
-		workspace.Terrain.WaterWaveSize = 0
-		workspace.Terrain.WaterWaveSpeed = 0
-		workspace.Terrain.WaterReflectance = 0
-		workspace.Terrain.WaterTransparency = 1
-
-		for _, gui in ipairs(game.CoreGui:GetDescendants()) do
-			if gui:IsA("ImageLabel") or gui:IsA("ImageButton") then
-				gui.ImageTransparency = 0.2
-			end
-		end
-
-		Rayfield:Notify({
-			Title = "Ping Optimized",
-			Content = "Network-heavy visuals reduced.",
-			Duration = 4
-		})
-	end
-})
-
-OptimTab:CreateButton({
-	Name = "PvP Skybox (bright style)",
-	Callback = function()
-		for _, v in ipairs(Lighting:GetChildren()) do
-			if v:IsA("Sky") then v:Destroy() end
-		end
-		local sky = Instance.new("Sky")
-		sky.SkyboxBk = "rbxassetid://159454299"
-		sky.SkyboxDn = "rbxassetid://159454296"
-		sky.SkyboxFt = "rbxassetid://159454293"
-		sky.SkyboxLf = "rbxassetid://159454286"
-		sky.SkyboxRt = "rbxassetid://159454300"
-		sky.SkyboxUp = "rbxassetid://159454288"
-		sky.StarCount = 3000
-		sky.SunAngularSize = 0
-		sky.MoonAngularSize = 11
-		sky.Parent = Lighting
-		Lighting.TimeOfDay = "18:00:00"
-	end
-})
-
---// Mini credit toast
-task.delay(1, function()
-	Rayfield:Notify({
-		Title = "Loaded",
-		Content = "Aimbot + ESP Outline ready — Made by Quyendz",
-		Duration = 5
-	})
-end)
